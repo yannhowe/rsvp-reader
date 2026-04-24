@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RSVP Reader — ESP32 Prototype</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #111;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: #fff;
+    user-select: none;
+  }
+
+  /* ── Device shell ── */
+  #device {
+    width: 320px;
+    height: 820px;
+    background: #000;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid #222;
+    box-shadow: 0 0 40px rgba(0,0,0,0.8), 0 0 0 6px #1a1a1a, 0 0 0 7px #2a2a2a;
+    border-radius: 8px;
+  }
+
+  /* ── Screens ── */
+  .screen {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+  }
+  .screen.active { display: flex; }
+
+  /* ════════════════════════════════
+     FILE PICKER SCREEN
+  ════════════════════════════════ */
+  #screen-picker {
+    background: #000;
+    padding: 0;
+  }
+
+  .picker-header {
+    background: #1a1a1a;
+    padding: 16px 16px 12px;
+    border-bottom: 1px solid #2a2a2a;
+  }
+  .picker-header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+    letter-spacing: 0.02em;
+  }
+  .picker-header p {
+    font-size: 11px;
+    color: #666;
+    margin-top: 2px;
+  }
+
+  .book-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+  }
+  .book-list::-webkit-scrollbar { width: 3px; }
+  .book-list::-webkit-scrollbar-track { background: #000; }
+  .book-list::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+
+  .book-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    cursor: pointer;
+    border-bottom: 1px solid #111;
+    transition: background 0.12s;
+  }
+  .book-item:hover { background: #0f0f0f; }
+  .book-item:active { background: #1a1a1a; }
+
+  .book-cover {
+    width: 44px;
+    height: 60px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: -1px;
+  }
+
+  .book-meta { flex: 1; min-width: 0; }
+  .book-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #eee;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .book-author {
+    font-size: 11px;
+    color: #666;
+    margin-top: 2px;
+  }
+  .book-info {
+    font-size: 10px;
+    color: #444;
+    margin-top: 4px;
+  }
+  .book-badge {
+    font-size: 9px;
+    background: #1a1a1a;
+    color: #555;
+    padding: 2px 6px;
+    border-radius: 10px;
+    border: 1px solid #2a2a2a;
+    white-space: nowrap;
+  }
+
+  .picker-footer {
+    padding: 10px 16px;
+    border-top: 1px solid #1a1a1a;
+    background: #0a0a0a;
+    font-size: 10px;
+    color: #333;
+    text-align: center;
+  }
+
+  /* ════════════════════════════════
+     READER SCREEN
+  ════════════════════════════════ */
+  #screen-reader {
+    background: #000;
+  }
+
+  /* Top bar */
+  #top-bar {
+    height: 40px;
+    background: #1a1a1a;
+    border-bottom: 1px solid #222;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  #btn-back {
+    background: none;
+    border: none;
+    color: #666;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px;
+    line-height: 1;
+    transition: color 0.12s;
+  }
+  #btn-back:hover { color: #aaa; }
+
+  #top-bar-text {
+    flex: 1;
+    min-width: 0;
+  }
+  #book-title-display {
+    font-size: 12px;
+    font-weight: 600;
+    color: #ccc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #chapter-display {
+    font-size: 10px;
+    color: #555;
+    margin-top: 1px;
+  }
+
+  #chapter-nav {
+    display: flex;
+    gap: 4px;
+  }
+  .btn-chapter {
+    background: #222;
+    border: 1px solid #333;
+    color: #777;
+    font-size: 12px;
+    width: 26px;
+    height: 26px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.12s, color 0.12s;
+  }
+  .btn-chapter:hover { background: #2a2a2a; color: #aaa; }
+  .btn-chapter:active { background: #333; }
+  .btn-chapter:disabled { opacity: 0.3; cursor: default; }
+
+  /* RSVP display area */
+  #rsvp-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    background: #000;
+  }
+
+  /* Word count context — tiny number above */
+  #word-counter {
+    position: absolute;
+    top: 20px;
+    left: 0; right: 0;
+    text-align: center;
+    font-size: 10px;
+    color: #2a2a2a;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.05em;
+  }
+
+  /* ORP guide line */
+  #orp-guide {
+    position: absolute;
+    left: 50%;
+    top: 30%;
+    bottom: 25%;
+    width: 1px;
+    background: #1e1e1e;
+    transform: translateX(-0.5px);
+  }
+
+  /* Word display container */
+  #word-display {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 0 12px;
+    position: relative;
+    height: 60px;
+  }
+
+  /* The three-part word rendering */
+  #word-left {
+    font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+    font-size: 34px;
+    font-weight: 500;
+    color: #fff;
+    white-space: pre;
+    text-align: right;
+    line-height: 1;
+    /* Right edge aligns with ORP column = center of viewport */
+    margin-right: 0;
+  }
+  #word-orp {
+    font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+    font-size: 34px;
+    font-weight: 700;
+    color: #e84040;
+    white-space: pre;
+    line-height: 1;
+    position: relative;
+    flex-shrink: 0;
+  }
+  /* ORP dot below pivot letter */
+  #word-orp::after {
+    content: '';
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 4px;
+    background: #e84040;
+    border-radius: 50%;
+    opacity: 0.7;
+  }
+  #word-right {
+    font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+    font-size: 34px;
+    font-weight: 500;
+    color: #fff;
+    white-space: pre;
+    text-align: left;
+    line-height: 1;
+  }
+
+  /* Idle/paused overlay */
+  #rsvp-idle {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    pointer-events: none;
+  }
+  #idle-icon {
+    font-size: 32px;
+    opacity: 0.15;
+  }
+  #idle-text {
+    font-size: 11px;
+    color: #333;
+    letter-spacing: 0.08em;
+  }
+
+  /* Bottom bar */
+  #bottom-bar {
+    height: 80px;
+    background: #1a1a1a;
+    border-top: 1px solid #222;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 12px 10px;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  /* Progress row */
+  #progress-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #progress-track {
+    flex: 1;
+    height: 3px;
+    background: #2a2a2a;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  #progress-fill {
+    height: 100%;
+    background: #e84040;
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.2s linear;
+  }
+  #progress-pct {
+    font-size: 10px;
+    color: #555;
+    font-variant-numeric: tabular-nums;
+    min-width: 30px;
+    text-align: right;
+  }
+
+  /* Controls row */
+  #controls-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  #btn-playpause {
+    width: 36px;
+    height: 36px;
+    background: #e84040;
+    border: none;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.12s, transform 0.08s;
+    flex-shrink: 0;
+  }
+  #btn-playpause:hover { background: #f05050; }
+  #btn-playpause:active { transform: scale(0.93); }
+
+  #wpm-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    justify-content: center;
+  }
+  .btn-wpm {
+    background: #222;
+    border: 1px solid #333;
+    color: #aaa;
+    font-size: 14px;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.1s;
+    flex-shrink: 0;
+  }
+  .btn-wpm:hover { background: #2a2a2a; color: #fff; }
+  .btn-wpm:active { background: #333; }
+
+  #wpm-display {
+    font-size: 14px;
+    font-weight: 600;
+    color: #ccc;
+    min-width: 48px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  #wpm-label {
+    font-size: 9px;
+    color: #444;
+    letter-spacing: 0.06em;
+  }
+
+  #status-indicator {
+    font-size: 9px;
+    color: #444;
+    letter-spacing: 0.06em;
+    min-width: 40px;
+    text-align: right;
+  }
+  #status-indicator.playing { color: #4a9; }
+
+  /* Flash animation on word change */
+  @keyframes wordFlash {
+    0%   { opacity: 0.6; }
+    15%  { opacity: 1; }
+    100% { opacity: 1; }
+  }
+  .word-flash {
+    animation: wordFlash 0.08s ease-out;
+  }
+</style>
+</head>
+<body>
+
+<div id="device">
+
+  <!-- ═══════════════════════════════════
+       SCREEN: FILE PICKER
+  ═══════════════════════════════════ -->
+  <div id="screen-picker" class="screen active">
+    <div class="picker-header">
+      <h1>Library</h1>
+      <p>4 books · Tap to open</p>
+    </div>
+
+    <div class="book-list" id="book-list">
+      <!-- populated by JS -->
+    </div>
+
+    <div class="picker-footer">
+      RSVP Reader v0.1 · ESP32-S3-LCD-3.16 Prototype
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════
+       SCREEN: READER
+  ═══════════════════════════════════ -->
+  <div id="screen-reader" class="screen">
+
+    <!-- Top bar -->
+    <div id="top-bar">
+      <button id="btn-back" title="Back to library">&#8592;</button>
+      <div id="top-bar-text">
+        <div id="book-title-display">—</div>
+        <div id="chapter-display">Chapter 1 of 3</div>
+      </div>
+      <div id="chapter-nav">
+        <button class="btn-chapter" id="btn-prev-ch" title="Prev chapter (↑)">&#8593;</button>
+        <button class="btn-chapter" id="btn-next-ch" title="Next chapter (↓)">&#8595;</button>
+      </div>
+    </div>
+
+    <!-- RSVP area -->
+    <div id="rsvp-area">
+      <div id="word-counter">—</div>
+      <div id="orp-guide"></div>
+
+      <div id="word-display">
+        <span id="word-left"></span>
+        <span id="word-orp"> </span>
+        <span id="word-right"></span>
+      </div>
+
+      <div id="rsvp-idle">
+        <div id="idle-icon">&#9654;</div>
+        <div id="idle-text">PRESS PLAY</div>
+      </div>
+    </div>
+
+    <!-- Bottom bar -->
+    <div id="bottom-bar">
+      <div id="progress-row">
+        <div id="progress-track">
+          <div id="progress-fill"></div>
+        </div>
+        <div id="progress-pct">0%</div>
+      </div>
+
+      <div id="controls-row">
+        <button id="btn-playpause" title="Play/Pause (Space)">&#9654;</button>
+
+        <div id="wpm-controls">
+          <button class="btn-wpm" id="btn-wpm-down" title="Slower (←)">&#8722;</button>
+          <div>
+            <div id="wpm-display">300</div>
+            <div id="wpm-label">WPM</div>
+          </div>
+          <button class="btn-wpm" id="btn-wpm-up" title="Faster (→)">&#43;</button>
+        </div>
+
+        <div id="status-indicator">PAUSED</div>
+      </div>
+    </div>
+
+  </div><!-- /screen-reader -->
+</div><!-- /device -->
+
+<script>
+'use strict';
+
+/* ════════════════════════════════════════════════════════════
+   DATA — Books & Chapters
+════════════════════════════════════════════════════════════ */
+
+const BOOKS = [
+  {
+    id: 'tale-two-cities',
+    title: 'A Tale of Two Cities',
+    author: 'Charles Dickens',
+    year: '1859',
+    coverColor: '#1a0a0a',
+    coverText: 'TTC',
+    coverTextColor: '#c0392b',
+    chapters: [
+      {
+        title: 'Chapter I — The Period',
+        text: `It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, it was the epoch of belief, it was the epoch of incredulity, it was the season of Light, it was the season of Darkness, it was the spring of hope, it was the winter of despair, we had everything before us, we had nothing before us, we were all going direct to Heaven, we were all going direct the other way.`
+      },
+      {
+        title: 'Chapter II — The Mail',
+        text: `There was a king with a large jaw and a queen with a plain face, on the throne of England; there was a king with a large jaw and a queen with a fair face, on the throne of France. In both countries it was clearer than crystal to the lords of the State preserves of loaves and fishes, that things in general were settled for ever.`
+      },
+      {
+        title: 'Chapter III — The Night Shadows',
+        text: `It was the year of Our Lord one thousand seven hundred and seventy-five. Spiritual revelations were conceded to England at that favoured period, as at this. Mrs. Southcott had recently attained her five-and-twentieth blessed birthday, of whom a prophetic private in the Life Guards had heralded the sublime appearance by announcing that arrangements were made for the swallowing up of London and Westminster.`
+      }
+    ]
+  },
+  {
+    id: 'moby-dick',
+    title: 'Moby-Dick',
+    author: 'Herman Melville',
+    year: '1851',
+    coverColor: '#0a0d1a',
+    coverText: 'MD',
+    coverTextColor: '#2980b9',
+    chapters: [
+      {
+        title: 'Chapter I — Loomings',
+        text: `Call me Ishmael. Some years ago never mind how long precisely having little money in my purse, and nothing particular to interest me on shore, I thought I would sail about a little and see the watery part of the world. It is a way I have of driving off the spleen and regulating the circulation. Whenever I find myself growing grim about the mouth; whenever it is a damp, drizzly November in my soul; whenever I find myself involuntarily pausing before coffin warehouses, and bringing up the rear of every funeral I meet; and especially whenever my hypos get such an upper hand of me, that it requires a strong moral principle to prevent me from deliberately stepping into the street, and methodically knocking people's hats off, then, I account it high time to get to sea as soon as I can.`
+      },
+      {
+        title: 'Chapter II — The Carpet-Bag',
+        text: `I stuffed a shirt or two into my old carpet-bag, tucked it under my arm, and started for Cape Horn and the Pacific. Quitting the good city of old Manhatto, I duly arrived in New Bedford. It was a Saturday night in December. Much was I disappointed upon learning that the little packet for Nantucket had already sailed, and that no way of reaching that place would offer itself, until the following Monday.`
+      },
+      {
+        title: 'Chapter III — The Spouter-Inn',
+        text: `Entering that gable-ended Spouter-Inn, you found yourself in a wide, low, straggling entry with old-fashioned wainscots, reminding one of the bulwarks of some condemned old craft. On one side hung a very large oil-painting so thoroughly besmoked, and every way defaced, that in the unequal crosslights by which you viewed it, it was only by diligent study and a series of systematic visits to it, and careful inquiry of the neighbors, that you could any way arrive at an unerring conviction.`
+      }
+    ]
+  },
+  {
+    id: 'pride-prejudice',
+    title: 'Pride and Prejudice',
+    author: 'Jane Austen',
+    year: '1813',
+    coverColor: '#0a1a0a',
+    coverText: 'P&P',
+    coverTextColor: '#27ae60',
+    chapters: [
+      {
+        title: 'Chapter I',
+        text: `It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife. However little known the feelings or views of such a man may be on his first entering a neighbourhood, this truth is so well fixed in the minds of the surrounding families, that he is considered as the rightful property of some one or other of their daughters.`
+      },
+      {
+        title: 'Chapter II',
+        text: `Mr. Bennet was among the earliest of his neighbours in calling upon Mr. Bingley. He had always intended to visit, though to the last always assuring his wife that he should not go; and till the evening after the visit was paid, she had no knowledge of it. It was then disclosed in the following manner. Observing his second daughter employed in trimming a hat, he suddenly addressed her with, "I hope Mr. Bingley will like it, Lizzy."`
+      },
+      {
+        title: 'Chapter III',
+        text: `Not all that Mrs. Bennet, however, with the assistance of her five daughters, could ask on the subject was sufficient to draw from her husband any satisfactory description of Mr. Bingley. They attacked him in various ways; with barefaced questions, ingenious suppositions, and distant surmises; but he eluded the skill of them all; and they were at last obliged to accept the second-hand intelligence of their neighbour Lady Lucas.`
+      }
+    ]
+  },
+  {
+    id: 'frankenstein',
+    title: 'Frankenstein',
+    author: 'Mary Shelley',
+    year: '1818',
+    coverColor: '#0d0a1a',
+    coverText: 'FR',
+    coverTextColor: '#8e44ad',
+    chapters: [
+      {
+        title: 'Letter I',
+        text: `You will rejoice to hear that no disaster has accompanied the commencement of an enterprise which you have regarded with such evil forebodings. I arrived here yesterday; and my first task is to assure my dear sister of my welfare, and increasing confidence in the success of my undertaking. I am already far north of London; and as I walk in the streets of Petersburgh, I feel a cold northern breeze play upon my cheeks, which braces my nerves and fills me with delight.`
+      },
+      {
+        title: 'Letter II',
+        text: `To Mrs. Saville, England. My affections are more engaged than I supposed. I have been accustomed to fail in all my wishes; and I could not but feel the bitterness of disappointment when I found that the person I saw was not the glorious being my imagination had painted. I met a man with noble aspirations, one who, when the sun shone and nature smiled, could not help but feel the warmth of human kindness flowing through his veins.`
+      },
+      {
+        title: 'Chapter I',
+        text: `I am by birth a Genevese; and my family is one of the most distinguished of that republic. My ancestors had been for many years counsellors and syndics; and my father had filled several public situations with honour and reputation. He was respected by all who knew him for his integrity and indefatigable attention to public business. He passed his younger days perpetually occupied by the affairs of his country; a variety of circumstances had prevented his marrying early, nor was it until the decline of life that he became a husband and the father of a family.`
+      }
+    ]
+  }
+];
+
+/* ════════════════════════════════════════════════════════════
+   STATE
+════════════════════════════════════════════════════════════ */
+
+const STATE = {
+  screen: 'PICKER',   // PICKER | READING | PAUSED
+  bookIndex: 0,
+  chapterIndex: 0,
+  words: [],
+  wordIndex: 0,
+  wpm: 300,
+  timer: null,
+  playing: false
+};
+
+/* ════════════════════════════════════════════════════════════
+   ORP CALCULATION
+════════════════════════════════════════════════════════════ */
+
+function getOrpIndex(word) {
+  // Strip punctuation for length calculation
+  const clean = word.replace(/[^a-zA-Z0-9]/g, '');
+  const len = clean.length || word.length;
+  if (len <= 1)  return 0;
+  if (len <= 5)  return 1;
+  if (len <= 9)  return 2;
+  if (len <= 13) return 3;
+  return 4;
+}
+
+/* ════════════════════════════════════════════════════════════
+   TIMING
+════════════════════════════════════════════════════════════ */
+
+function getWordDelay(word, wpm) {
+  let base = 60000 / wpm;
+
+  // Punctuation multipliers (check last char)
+  const last = word[word.length - 1];
+  if ('.!?'.includes(last))    base *= 2.0;
+  else if(',;'.includes(last)) base *= 1.5;
+
+  // Length-based adjustments
+  const len = word.replace(/[^a-zA-Z0-9]/g, '').length || word.length;
+  if (len > 10)    base *= 1.25;
+  else if (len <= 3) base *= 0.75;
+
+  return base;
+}
+
+/* ════════════════════════════════════════════════════════════
+   TEXT PROCESSING
+════════════════════════════════════════════════════════════ */
+
+function textToWords(text) {
+  return text.trim().split(/\s+/).filter(w => w.length > 0);
+}
+
+/* ════════════════════════════════════════════════════════════
+   DOM REFS
+════════════════════════════════════════════════════════════ */
+
+const $ = id => document.getElementById(id);
+
+const elScreenPicker   = $('screen-picker');
+const elScreenReader   = $('screen-reader');
+const elBookList       = $('book-list');
+const elBookTitle      = $('book-title-display');
+const elChapterDisplay = $('chapter-display');
+const elWordLeft       = $('word-left');
+const elWordOrp        = $('word-orp');
+const elWordRight      = $('word-right');
+const elWordCounter    = $('word-counter');
+const elProgressFill   = $('progress-fill');
+const elProgressPct    = $('progress-pct');
+const elBtnPlay        = $('btn-playpause');
+const elWpmDisplay     = $('wpm-display');
+const elStatus         = $('status-indicator');
+const elRsvpIdle       = $('rsvp-idle');
+const elBtnPrevCh      = $('btn-prev-ch');
+const elBtnNextCh      = $('btn-next-ch');
+const elBtnBack        = $('btn-back');
+
+/* ════════════════════════════════════════════════════════════
+   RENDER: FILE PICKER
+════════════════════════════════════════════════════════════ */
+
+function renderPicker() {
+  elBookList.innerHTML = '';
+  BOOKS.forEach((book, i) => {
+    const item = document.createElement('div');
+    item.className = 'book-item';
+    item.innerHTML = `
+      <div class="book-cover" style="background:${book.coverColor};color:${book.coverTextColor}">
+        ${book.coverText}
+      </div>
+      <div class="book-meta">
+        <div class="book-title">${book.title}</div>
+        <div class="book-author">${book.author}</div>
+        <div class="book-info">${book.year} · ${book.chapters.length} chapters</div>
+      </div>
+      <div class="book-badge">EPUB</div>
+    `;
+    item.addEventListener('click', () => openBook(i));
+    elBookList.appendChild(item);
+  });
+}
+
+/* ════════════════════════════════════════════════════════════
+   NAVIGATION
+════════════════════════════════════════════════════════════ */
+
+function openBook(bookIndex) {
+  stopReading();
+  STATE.bookIndex = bookIndex;
+  STATE.chapterIndex = 0;
+  loadChapter();
+  showScreen('READING');
+}
+
+function loadChapter() {
+  const book = BOOKS[STATE.bookIndex];
+  const chapter = book.chapters[STATE.chapterIndex];
+  STATE.words = textToWords(chapter.text);
+  STATE.wordIndex = 0;
+  STATE.playing = false;
+
+  elBookTitle.textContent = book.title;
+  elChapterDisplay.textContent =
+    `${chapter.title} · ${STATE.chapterIndex + 1} of ${book.chapters.length}`;
+
+  elBtnPrevCh.disabled = STATE.chapterIndex === 0;
+  elBtnNextCh.disabled = STATE.chapterIndex === book.chapters.length - 1;
+
+  updateProgressUI();
+  showIdleState(true);
+  clearWordDisplay();
+}
+
+function prevChapter() {
+  if (STATE.chapterIndex > 0) {
+    stopReading();
+    STATE.chapterIndex--;
+    loadChapter();
+  }
+}
+
+function nextChapter() {
+  const book = BOOKS[STATE.bookIndex];
+  if (STATE.chapterIndex < book.chapters.length - 1) {
+    stopReading();
+    STATE.chapterIndex++;
+    loadChapter();
+  }
+}
+
+function showScreen(name) {
+  STATE.screen = name;
+  elScreenPicker.classList.toggle('active', name === 'PICKER');
+  elScreenReader.classList.toggle('active', name === 'READING' || name === 'PAUSED');
+}
+
+/* ════════════════════════════════════════════════════════════
+   WORD DISPLAY
+════════════════════════════════════════════════════════════ */
+
+function clearWordDisplay() {
+  elWordLeft.textContent = '';
+  elWordOrp.textContent  = ' ';
+  elWordRight.textContent = '';
+}
+
+function displayWord(word) {
+  const orpIdx = getOrpIndex(word);
+
+  const before = word.slice(0, orpIdx);
+  const pivot  = word.slice(orpIdx, orpIdx + 1);
+  const after  = word.slice(orpIdx + 1);
+
+  // Animate
+  elWordLeft.classList.remove('word-flash');
+  elWordOrp.classList.remove('word-flash');
+  elWordRight.classList.remove('word-flash');
+
+  // Force reflow to restart animation
+  void elWordOrp.offsetWidth;
+
+  elWordLeft.textContent  = before;
+  elWordOrp.textContent   = pivot || ' ';
+  elWordRight.textContent = after;
+
+  elWordLeft.classList.add('word-flash');
+  elWordOrp.classList.add('word-flash');
+  elWordRight.classList.add('word-flash');
+}
+
+/* ════════════════════════════════════════════════════════════
+   PROGRESS
+════════════════════════════════════════════════════════════ */
+
+function updateProgressUI() {
+  const total = STATE.words.length;
+  const idx   = STATE.wordIndex;
+  const pct   = total > 0 ? Math.round((idx / total) * 100) : 0;
+
+  elProgressFill.style.width = pct + '%';
+  elProgressPct.textContent  = pct + '%';
+  elWordCounter.textContent  = total > 0
+    ? `${idx + 1} / ${total} words`
+    : '—';
+}
+
+/* ════════════════════════════════════════════════════════════
+   PLAYBACK ENGINE
+════════════════════════════════════════════════════════════ */
+
+function showIdleState(show) {
+  elRsvpIdle.style.display = show ? 'flex' : 'none';
+  if (show) {
+    const icon = elRsvpIdle.querySelector('#idle-icon');
+    icon.innerHTML = STATE.playing ? '&#9646;&#9646;' : '&#9654;';
+  }
+}
+
+function playWord() {
+  if (!STATE.playing) return;
+  if (STATE.wordIndex >= STATE.words.length) {
+    // End of chapter
+    stopReading();
+    elStatus.textContent = 'DONE';
+    elStatus.className = '';
+    return;
+  }
+
+  const word = STATE.words[STATE.wordIndex];
+  displayWord(word);
+  showIdleState(false);
+  updateProgressUI();
+
+  STATE.wordIndex++;
+
+  const delay = getWordDelay(word, STATE.wpm);
+  STATE.timer = setTimeout(playWord, delay);
+}
+
+function startReading() {
+  if (STATE.playing) return;
+  STATE.playing = true;
+  elBtnPlay.innerHTML = '&#9646;&#9646;';
+  elStatus.textContent = 'PLAYING';
+  elStatus.className = 'playing';
+  showScreen('READING');
+  playWord();
+}
+
+function pauseReading() {
+  STATE.playing = false;
+  clearTimeout(STATE.timer);
+  STATE.timer = null;
+  elBtnPlay.innerHTML = '&#9654;';
+  elStatus.textContent = 'PAUSED';
+  elStatus.className = '';
+  showIdleState(false);
+}
+
+function stopReading() {
+  STATE.playing = false;
+  clearTimeout(STATE.timer);
+  STATE.timer = null;
+  elBtnPlay.innerHTML = '&#9654;';
+  elStatus.textContent = 'PAUSED';
+  elStatus.className = '';
+}
+
+function togglePlay() {
+  if (STATE.playing) {
+    pauseReading();
+  } else {
+    // If at end, restart chapter
+    if (STATE.wordIndex >= STATE.words.length) {
+      STATE.wordIndex = 0;
+    }
+    startReading();
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   WPM CONTROLS
+════════════════════════════════════════════════════════════ */
+
+function setWpm(val) {
+  STATE.wpm = Math.max(100, Math.min(1000, val));
+  elWpmDisplay.textContent = STATE.wpm;
+}
+
+function adjustWpm(delta) {
+  setWpm(STATE.wpm + delta);
+}
+
+/* ════════════════════════════════════════════════════════════
+   EVENT LISTENERS
+════════════════════════════════════════════════════════════ */
+
+elBtnPlay.addEventListener('click', togglePlay);
+$('btn-wpm-down').addEventListener('click', () => adjustWpm(-25));
+$('btn-wpm-up').addEventListener('click',   () => adjustWpm(+25));
+elBtnPrevCh.addEventListener('click', prevChapter);
+elBtnNextCh.addEventListener('click', nextChapter);
+elBtnBack.addEventListener('click', () => {
+  stopReading();
+  showScreen('PICKER');
+});
+
+// Keyboard controls
+document.addEventListener('keydown', e => {
+  if (STATE.screen === 'PICKER') return;
+  switch (e.key) {
+    case ' ':
+      e.preventDefault();
+      togglePlay();
+      break;
+    case 'ArrowLeft':
+      e.preventDefault();
+      adjustWpm(-25);
+      break;
+    case 'ArrowRight':
+      e.preventDefault();
+      adjustWpm(+25);
+      break;
+    case 'ArrowUp':
+      e.preventDefault();
+      prevChapter();
+      break;
+    case 'ArrowDown':
+      e.preventDefault();
+      nextChapter();
+      break;
+  }
+});
+
+/* ════════════════════════════════════════════════════════════
+   INIT
+════════════════════════════════════════════════════════════ */
+
+renderPicker();
+setWpm(300);
+</script>
+</body>
+</html>

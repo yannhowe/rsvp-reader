@@ -1,0 +1,13 @@
+# LVGL compiled font files (large, regenerate from font converter)
+firmware/fonts/*.c
+
+# Build artifacts
+build/
+.pio/
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
