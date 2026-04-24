@@ -36,4 +36,7 @@ uint64_t sd_total_bytes();
 // Returns free space on the card in bytes.
 uint64_t sd_free_bytes();
 
+// Delete a file from the SD card. Returns true on success.
+bool sd_remove_file(const char* path);
+
 #endif // SD_MANAGER_H

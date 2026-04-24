@@ -34,3 +34,7 @@ typedef void (*ui_menu_action_cb_t)(int action);    // 0=resume, 1=chapter, 2=wp
 void ui_set_file_callback(ui_file_selected_cb_t cb);
 void ui_set_resume_callback(ui_resume_cb_t cb);
 void ui_set_menu_callback(ui_menu_action_cb_t cb);
+
+// Update the text of a menu button at runtime (0-indexed).
+// Call before ui_show_menu() to reflect dynamic state (e.g. "WiFi: ON").
+void ui_set_menu_label(int index, const char* text);

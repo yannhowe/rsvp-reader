@@ -755,3 +755,19 @@ void ui_set_file_list(const char** files, int count, const size_t* sizes) {
 void ui_set_file_callback(ui_file_selected_cb_t cb)  { s_file_cb   = cb; }
 void ui_set_resume_callback(ui_resume_cb_t cb)         { s_resume_cb = cb; }
 void ui_set_menu_callback(ui_menu_action_cb_t cb)      { s_menu_cb   = cb; }
+
+void ui_set_menu_label(int index, const char* text) {
+    if (!s_menu_list || !text) return;
+    // Walk children of the list to find the button at `index`.
+    uint32_t child_cnt = lv_obj_get_child_cnt(s_menu_list);
+    for (uint32_t i = 0; i < child_cnt; i++) {
+        lv_obj_t* child = lv_obj_get_child(s_menu_list, i);
+        int action = (int)(intptr_t)lv_obj_get_user_data(child);
+        if (action == index) {
+            // The label is the first child of the list button
+            lv_obj_t* lbl = lv_obj_get_child(child, 0);
+            if (lbl) lv_label_set_text(lbl, text);
+            return;
+        }
+    }
+}

@@ -190,3 +190,8 @@ uint64_t sd_free_bytes() {
     if (!s_mounted) return 0;
     return SD_MMC.totalBytes() - SD_MMC.usedBytes();
 }
+
+bool sd_remove_file(const char* path) {
+    if (!s_mounted) return false;
+    return SD_MMC.remove(path);
+}

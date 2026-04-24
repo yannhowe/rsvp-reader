@@ -28,6 +28,7 @@
 #include "ui_manager.h"
 #include "imu_controls.h"
 #include "bookmark_manager.h"
+#include "wifi_manager.h"
 
 // -----------------------------------------------------------------------------
 // Globals
@@ -339,6 +340,10 @@ void setup() {
         Serial.println("[WARN] SD card not found — continuing without storage");
     }
 
+    // WiFi (radio stays off until toggled from menu)
+    wifi_init();
+    Serial.println("[OK] WiFi module ready (inactive)");
+
     // IMU (tilt gestures)
     imu_init();
     Serial.println("[OK] IMU ready");
@@ -393,6 +398,9 @@ void loop() {
     // Poll controls
     imu_tick();
 
+    // Service WiFi clients (no-op when inactive)
+    wifi_tick();
+
     // Auto-save bookmark while reading
     if (rsvp_is_playing()) {
         unsigned long now = millis();
@@ -442,6 +450,7 @@ static void on_control_event(ControlEvent evt) {
             rsvp_pause();
             bookmark_save(rsvp_current_book(), rsvp_current_chapter(),
                          rsvp_current_word_idx(), rsvp_get_wpm());
+            ui_set_menu_label(4, wifi_is_active() ? "WiFi: ON" : "WiFi: OFF");
             ui_show_menu();
             imu_set_menu_mode(true);
             imu_gestures_enable(false);
@@ -514,8 +523,17 @@ static void on_menu_action(int action) {
                          rsvp_current_word_idx(), rsvp_get_wpm());
             ui_show_file_picker();
             break;
-        case 4: // Settings
-            ui_show_reader();
+        case 4: // WiFi toggle
+            if (wifi_is_active()) {
+                wifi_stop();
+            } else {
+                wifi_start();
+            }
+            // Re-open menu with updated label
+            ui_set_menu_label(4, wifi_is_active() ? "WiFi: ON" : "WiFi: OFF");
+            ui_show_menu();
+            imu_set_menu_mode(true);
+            imu_gestures_enable(false);
             break;
     }
 }
