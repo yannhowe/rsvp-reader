@@ -2,7 +2,6 @@
 
 #include <Arduino.h>
 #include <stddef.h>
-#include "imu_controls.h"  // for Orientation enum
 
 // Initialize all UI screens (call once in setup())
 void ui_init();
@@ -19,9 +18,6 @@ void ui_update_progress(int current_word, int total_words);
 void ui_update_wpm(int wpm);
 void ui_update_play_state(bool playing);
 void ui_update_chapter_info(const char* title, int chapter, int total_chapters);
-
-// Handle orientation change — repositions LVGL elements
-void ui_set_orientation(Orientation orient);
 
 // File picker
 void ui_set_file_list(const char** files, int count, const size_t* sizes);

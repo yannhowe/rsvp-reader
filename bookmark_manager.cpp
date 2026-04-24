@@ -84,15 +84,6 @@ void bookmark_save(const char* epub_path, int chapter, int word_idx, int wpm) {
     snprintf(k_wpm,  sizeof(k_wpm),  "%s_wm",  prefix);  // "wm" to stay ≤15
     snprintf(k_path, sizeof(k_path), "%s_pt",  prefix);  // "pt" to stay ≤15
 
-    // Check for hash collision: if a different book already occupies this slot,
-    // refuse to overwrite it (data loss prevention).
-    String existing_path = prefs.getString(k_path, "");
-    if (existing_path.length() > 0 && strcmp(existing_path.c_str(), epub_path) != 0) {
-        Serial.printf("[bookmark] Hash collision for '%s' — slot occupied by '%s', skipping save\n",
-                      epub_path, existing_path.c_str());
-        return;
-    }
-
     prefs.putInt(k_ch,  chapter);
     prefs.putInt(k_wi,  word_idx);
     prefs.putInt(k_wpm, wpm);

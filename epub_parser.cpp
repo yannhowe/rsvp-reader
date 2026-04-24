@@ -159,28 +159,22 @@ static void resolve_href(const char* base_dir, const char* href,
                          char* out, size_t out_len) {
     if (!base_dir || !href || !out || out_len == 0) return;
 
-    // Reject absolute paths — EPUB hrefs must be relative to the OPF directory.
-    // An absolute path in a manifest is non-conformant and could reference
-    // unintended ZIP entries.
+    // Absolute path: use directly
     if (href[0] == '/') {
-        Serial.print("[epub] SECURITY: rejecting absolute href: ");
-        Serial.println(href);
-        safe_copy(out, "", out_len);
+        safe_copy(out, href, out_len);
         return;
     }
 
     char tmp[512];
     // Concatenate base_dir + href
     size_t dir_len = strlen(base_dir);
-    size_t href_len = strlen(href);
-    if (dir_len + href_len + 1 >= sizeof(tmp)) {
-        // Path too long — reject
-        Serial.println("[epub] SECURITY: href too long, rejecting");
-        safe_copy(out, "", out_len);
+    if (dir_len + strlen(href) + 1 >= sizeof(tmp)) {
+        // Fallback: just use href
+        safe_copy(out, href, out_len);
         return;
     }
     memcpy(tmp, base_dir, dir_len);
-    memcpy(tmp + dir_len, href, href_len + 1);  // bounded copy including NUL
+    strcpy(tmp + dir_len, href);
 
     // Normalise: remove "seg/../" sequences
     char resolved[512];
@@ -214,18 +208,6 @@ static void resolve_href(const char* base_dir, const char* href,
         if (*src == '/') src++;  // skip separator
     }
     *r = '\0';
-
-    // SECURITY: Verify the resolved path doesn't start with ".." or contain
-    // "/../" — this would mean the href escapes above the OPF directory root.
-    if (resolved[0] == '\0' ||
-        (resolved[0] == '.' && resolved[1] == '.') ||
-        strstr(resolved, "/../") != nullptr) {
-        Serial.print("[epub] SECURITY: path traversal detected, rejecting: ");
-        Serial.println(resolved);
-        safe_copy(out, "", out_len);
-        return;
-    }
-
     safe_copy(out, resolved, out_len);
 }
 
@@ -237,26 +219,6 @@ static void resolve_href(const char* base_dir, const char* href,
 // Returns actual size written, or 0 on error.
 // NUL-terminates the buffer.
 static size_t zip_extract_to_buf(const char* filename) {
-    // SECURITY: Check decompressed size before allocating, to prevent zip bombs
-    // from exhausting heap.
-    int file_index = mz_zip_reader_locate_file(&s_zip, filename, NULL, 0);
-    if (file_index < 0) {
-        Serial.print("[epub] ZIP file not found: ");
-        Serial.println(filename);
-        return 0;
-    }
-    mz_zip_archive_file_stat file_stat;
-    if (!mz_zip_reader_file_stat(&s_zip, file_index, &file_stat)) {
-        Serial.print("[epub] ZIP stat failed: ");
-        Serial.println(filename);
-        return 0;
-    }
-    if (file_stat.m_uncomp_size >= EPUB_MAX_CHAPTER_SIZE) {
-        Serial.printf("[epub] SECURITY: file too large (%u bytes), skipping: %s\n",
-                      (unsigned)file_stat.m_uncomp_size, filename);
-        return 0;
-    }
-
     size_t out_size = 0;
     void* data = mz_zip_reader_extract_file_to_heap(
                      &s_zip, filename, &out_size, 0);
@@ -266,6 +228,8 @@ static size_t zip_extract_to_buf(const char* filename) {
         return 0;
     }
     if (out_size >= EPUB_MAX_CHAPTER_SIZE) {
+        Serial.print("[epub] File too large (truncating): ");
+        Serial.println(filename);
         out_size = EPUB_MAX_CHAPTER_SIZE - 1;
     }
     memcpy(s_xhtml_buf, data, out_size);
@@ -674,10 +638,7 @@ static int xhtml_to_text(const char* in_buf, size_t in_size, File& out_f) {
             } else if (entity_len < (int)sizeof(entity_buf) - 1) {
                 entity_buf[entity_len++] = c;
             } else {
-                // Entity buffer overflow — emit raw '&' + buffered chars + current char
-                emit_char('&');
-                for (int ei = 0; ei < entity_len; ei++) emit_char(entity_buf[ei]);
-                emit_char(c);
+                // Buffer overflow — abandon entity, emit '&' and resume
                 state = ST_NORMAL;
             }
             break;

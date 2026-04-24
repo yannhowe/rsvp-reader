@@ -7,8 +7,7 @@
 // Hardware: Waveshare ESP32-S3-LCD-3.16 (SKU 31786)
 //   - 320×820 RGB565 display (ST7701S)
 //   - SD card (SDMMC 4-wire)
-//   - QMI8658 IMU (tilt gestures)
-//   - BOOT button (play/pause/menu)
+//   - BOOT button (play/pause/menu/navigation)
 //
 // Dependencies:
 //   - LVGL v8 (Arduino library)
@@ -344,9 +343,9 @@ void setup() {
     wifi_init();
     Serial.println("[OK] WiFi module ready (inactive)");
 
-    // IMU (tilt gestures)
+    // Button controls
     imu_init();
-    Serial.println("[OK] IMU ready");
+    Serial.println("[OK] Controls ready");
 
     // Bookmarks
     bookmark_init();
@@ -446,28 +445,23 @@ static void on_control_event(ControlEvent evt) {
         case EVT_PLAY_PAUSE:
             rsvp_toggle();
             break;
-        case EVT_MENU:
+        case EVT_MENU: {
             rsvp_pause();
             bookmark_save(rsvp_current_book(), rsvp_current_chapter(),
                          rsvp_current_word_idx(), rsvp_get_wpm());
+            char wpm_buf[32];
+            snprintf(wpm_buf, sizeof(wpm_buf), "WPM: %d", rsvp_get_wpm());
+            ui_set_menu_label(2, wpm_buf);
             ui_set_menu_label(4, wifi_is_active() ? "WiFi: ON" : "WiFi: OFF");
             ui_show_menu();
             imu_set_menu_mode(true);
-            imu_gestures_enable(false);
             break;
+        }
         case EVT_NEXT_CHAPTER:
             rsvp_next_chapter();
             break;
         case EVT_PREV_CHAPTER:
             rsvp_prev_chapter();
-            break;
-        case EVT_WPM_UP:
-            rsvp_set_wpm(rsvp_get_wpm() + 25);
-            ui_update_wpm(rsvp_get_wpm());
-            break;
-        case EVT_WPM_DOWN:
-            rsvp_set_wpm(rsvp_get_wpm() - 25);
-            ui_update_wpm(rsvp_get_wpm());
             break;
         default:
             break;
@@ -505,7 +499,6 @@ static void on_resume_choice(bool resume) {
 
 static void on_menu_action(int action) {
     imu_set_menu_mode(false);
-    imu_gestures_enable(true);
     switch (action) {
         case 0: // Resume reading
             ui_show_reader();
@@ -514,9 +507,28 @@ static void on_menu_action(int action) {
         case 1: // Jump to chapter (TODO: show chapter list)
             ui_show_reader();
             break;
-        case 2: // Adjust WPM (TODO: show WPM slider)
-            ui_show_reader();
+        case 2: { // Adjust WPM — cycle through presets
+            static const int wpm_presets[] = {200, 250, 300, 350, 400, 500};
+            static const int num_presets = sizeof(wpm_presets) / sizeof(wpm_presets[0]);
+            int cur = rsvp_get_wpm();
+            // Find next preset strictly above current WPM, wrap to first
+            int next_wpm = wpm_presets[0];
+            for (int i = 0; i < num_presets; i++) {
+                if (wpm_presets[i] > cur) {
+                    next_wpm = wpm_presets[i];
+                    break;
+                }
+            }
+            rsvp_set_wpm(next_wpm);
+            ui_update_wpm(next_wpm);
+            // Update menu label and re-show menu
+            char wpm_label[32];
+            snprintf(wpm_label, sizeof(wpm_label), "WPM: %d", next_wpm);
+            ui_set_menu_label(2, wpm_label);
+            ui_show_menu();
+            imu_set_menu_mode(true);
             break;
+        }
         case 3: // Back to file picker
             rsvp_pause();
             bookmark_save(rsvp_current_book(), rsvp_current_chapter(),
@@ -533,7 +545,6 @@ static void on_menu_action(int action) {
             ui_set_menu_label(4, wifi_is_active() ? "WiFi: ON" : "WiFi: OFF");
             ui_show_menu();
             imu_set_menu_mode(true);
-            imu_gestures_enable(false);
             break;
     }
 }
